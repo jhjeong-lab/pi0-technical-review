@@ -1,0 +1,58 @@
+# macOS / editor noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python caches and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebook/runtime caches
+.ipynb_checkpoints/
+
+# Local review notes and research material
+docs/
+LOCAL_*.md
+
+# Local upstream checkouts
+upstream/openpi/
+!upstream/.gitkeep
+
+# Large ML/data outputs
+data/
+datasets/
+checkpoints/
+models/
+outputs/
+runs/
+wandb/
+mlruns/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.parquet
+
+# Generated artifacts
+artifacts/*
+!artifacts/.gitkeep
