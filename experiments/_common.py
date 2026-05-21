@@ -53,3 +53,25 @@ def brief(value, depth: int = 0) -> str:
         head = brief(value[0], depth + 1) if value else "empty"
         return f"{type(value).__name__}(len={len(value)}, first={head})"
     return f"{type(value).__name__}({value!r})"
+
+
+def tree_brief(title: str, value) -> None:
+    print(f"\n## {title}")
+    print(brief(value))
+
+
+def torch_tree_to(value, device):
+    try:
+        import torch
+    except ImportError:
+        return value
+
+    if isinstance(value, torch.Tensor):
+        return value.to(device)
+    if isinstance(value, dict):
+        return {k: torch_tree_to(v, device) for k, v in value.items()}
+    if isinstance(value, list):
+        return [torch_tree_to(v, device) for v in value]
+    if isinstance(value, tuple):
+        return tuple(torch_tree_to(v, device) for v in value)
+    return value
