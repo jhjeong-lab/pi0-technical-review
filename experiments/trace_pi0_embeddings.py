@@ -34,6 +34,8 @@ num_steps = int(env("NUM_DENOISE_STEPS", "2"))
 
 cfg = dataclasses.replace(config.get_config("debug"), num_workers=0)
 model_cfg = dataclasses.replace(cfg.model, pytorch_compile_mode=None)
+if device.type == "cpu":
+    model_cfg = dataclasses.replace(model_cfg, dtype="float32")
 cfg = dataclasses.replace(cfg, model=model_cfg)
 
 loader = data_loader.create_data_loader(
@@ -56,6 +58,17 @@ print("model_config:", model_cfg)
 tree_brief("loader observation", observation.to_dict())
 tree_brief("loader actions", actions)
 
+
+def channels_first_for_embed(images):
+    converted = []
+    result = []
+    for index, image in enumerate(images):
+        if image.ndim == 4 and image.shape[-1] == 3:
+            image = image.permute(0, 3, 1, 2).contiguous()
+            converted.append(index)
+        result.append(image)
+    return result, converted
+
 with torch.no_grad():
     images, img_masks, lang_tokens, lang_masks, state = model._preprocess_observation(observation, train=False)
     tree_brief("_preprocess_observation.images", images)
@@ -70,6 +83,11 @@ with torch.no_grad():
     tree_brief("sample_noise", noise)
     tree_brief("sample_time", time)
     tree_brief("x_t = time * noise + (1 - time) * actions", x_t)
+
+    images, converted_images = channels_first_for_embed(images)
+    if converted_images:
+        print("\nimage_format:", f"converted _preprocess_observation output NHWC -> NCHW for image indexes {converted_images}")
+        tree_brief("embed_prefix.images", images)
 
     prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(images, img_masks, lang_tokens, lang_masks)
     tree_brief("embed_prefix.embs", prefix_embs)
