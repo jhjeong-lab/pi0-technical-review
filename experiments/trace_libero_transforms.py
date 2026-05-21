@@ -28,7 +28,14 @@ def decode_image(value) -> np.ndarray:
 
 
 def load_tasks(local_dir: Path) -> dict[int, str]:
-    tasks_path = local_dir / "tasks.jsonl"
+    candidates = [local_dir / "tasks.jsonl", local_dir / "meta" / "tasks.jsonl"]
+    tasks_path = next((path for path in candidates if path.exists()), None)
+    if tasks_path is None:
+        matches = list(local_dir.rglob("tasks.jsonl"))
+        tasks_path = matches[0] if matches else None
+    if tasks_path is None:
+        return {}
+
     tasks = {}
     with tasks_path.open() as file:
         for line in file:
