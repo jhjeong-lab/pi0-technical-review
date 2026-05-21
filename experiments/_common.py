@@ -39,6 +39,8 @@ def run_openpi(args: list[str]) -> None:
 
 
 def brief(value, depth: int = 0) -> str:
+    if isinstance(value, (bytes, bytearray)):
+        return f"bytes(len={len(value)})"
     if hasattr(value, "shape"):
         dtype = getattr(value, "dtype", "?")
         return f"shape={tuple(value.shape)} dtype={dtype}"
