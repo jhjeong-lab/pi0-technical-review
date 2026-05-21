@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import torch
 
@@ -69,6 +70,44 @@ def channels_first_for_embed(images):
         result.append(image)
     return result, converted
 
+
+def trace_embed_prefix_parts(model, images, img_masks, lang_tokens, lang_masks):
+    embs = []
+    pad_masks = []
+    att_masks = []
+
+    for index, (image, img_mask) in enumerate(zip(images, img_masks, strict=True)):
+        img_emb = model.paligemma_with_expert.embed_image(image)
+        tree_brief(f"embed_prefix.image[{index}].emb", img_emb)
+
+        bsize, num_img_embs = img_emb.shape[:2]
+        embs.append(img_emb)
+        pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+        att_masks += [0] * num_img_embs
+
+    lang_emb = model.paligemma_with_expert.embed_language_tokens(lang_tokens)
+    lang_emb = lang_emb * math.sqrt(lang_emb.shape[-1])
+    tree_brief("embed_prefix.lang.emb", lang_emb)
+
+    embs.append(lang_emb)
+    pad_masks.append(lang_masks)
+    att_masks += [0] * lang_emb.shape[1]
+
+    embed_dims = [emb.shape[-1] for emb in embs]
+    print("\nembed_prefix.concat_dims:", embed_dims)
+    if len(set(embed_dims)) != 1:
+        print(
+            "embed_prefix.skipped:",
+            "cannot concatenate image/language embeddings with different hidden sizes in debug config",
+        )
+        return None
+
+    pad_masks = torch.cat(pad_masks, dim=1)
+    att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
+    att_masks = att_masks[None, :].expand(pad_masks.shape[0], len(att_masks))
+    return torch.cat(embs, dim=1), pad_masks, att_masks
+
+
 with torch.no_grad():
     images, img_masks, lang_tokens, lang_masks, state = model._preprocess_observation(observation, train=False)
     tree_brief("_preprocess_observation.images", images)
@@ -89,10 +128,14 @@ with torch.no_grad():
         print("\nimage_format:", f"converted _preprocess_observation output NHWC -> NCHW for image indexes {converted_images}")
         tree_brief("embed_prefix.images", images)
 
-    prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(images, img_masks, lang_tokens, lang_masks)
-    tree_brief("embed_prefix.embs", prefix_embs)
-    tree_brief("embed_prefix.pad_masks", prefix_pad_masks)
-    tree_brief("embed_prefix.att_masks", prefix_att_masks)
+    prefix = trace_embed_prefix_parts(model, images, img_masks, lang_tokens, lang_masks)
+    if prefix is not None:
+        prefix_embs, prefix_pad_masks, prefix_att_masks = prefix
+        tree_brief("embed_prefix.embs", prefix_embs)
+        tree_brief("embed_prefix.pad_masks", prefix_pad_masks)
+        tree_brief("embed_prefix.att_masks", prefix_att_masks)
+    else:
+        prefix_embs = prefix_pad_masks = prefix_att_masks = None
 
     suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = model.embed_suffix(state, x_t, time)
     tree_brief("embed_suffix.embs", suffix_embs)
@@ -100,19 +143,22 @@ with torch.no_grad():
     tree_brief("embed_suffix.att_masks", suffix_att_masks)
     tree_brief("embed_suffix.adarms_cond", adarms_cond)
 
-    pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
-    att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
-    att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
-    att_4d_masks = model._prepare_attention_masks_4d(att_2d_masks)
-    position_ids = torch.cumsum(pad_masks, dim=1) - 1
-    tree_brief("combined pad_masks", pad_masks)
-    tree_brief("combined att_masks", att_masks)
-    tree_brief("make_att_2d_masks", att_2d_masks)
-    tree_brief("_prepare_attention_masks_4d", att_4d_masks)
-    tree_brief("position_ids", position_ids)
+    if prefix is not None:
+        pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
+        att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
+        att_4d_masks = model._prepare_attention_masks_4d(att_2d_masks)
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        tree_brief("combined pad_masks", pad_masks)
+        tree_brief("combined att_masks", att_masks)
+        tree_brief("make_att_2d_masks", att_2d_masks)
+        tree_brief("_prepare_attention_masks_4d", att_4d_masks)
+        tree_brief("position_ids", position_ids)
 
-    loss = model.forward(observation, actions, noise=noise, time=time)
-    tree_brief("forward loss per action dim", loss)
+        loss = model.forward(observation, actions, noise=noise, time=time)
+        tree_brief("forward loss per action dim", loss)
 
-    sampled = model.sample_actions(device, observation, num_steps=num_steps)
-    tree_brief(f"sample_actions(num_steps={num_steps})", sampled)
+        sampled = model.sample_actions(device, observation, num_steps=num_steps)
+        tree_brief(f"sample_actions(num_steps={num_steps})", sampled)
+    else:
+        print("\nforward.skipped: full forward/sample_actions require a prefix embedding with one hidden size")
