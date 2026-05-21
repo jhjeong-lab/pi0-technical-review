@@ -24,7 +24,12 @@ except ValueError as error:
     ) from error
 
 
-device = torch.device(env("DEVICE", "cuda" if torch.cuda.is_available() else "cpu"))
+default_device = "cuda" if torch.cuda.is_available() else "cpu"
+if default_device == "cuda":
+    major, minor = torch.cuda.get_device_capability()
+    if major >= 12:
+        default_device = "cpu"
+device = torch.device(env("DEVICE", default_device))
 num_steps = int(env("NUM_DENOISE_STEPS", "2"))
 
 cfg = dataclasses.replace(config.get_config("debug"), num_workers=0)
